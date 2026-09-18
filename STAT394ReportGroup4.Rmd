@@ -1,0 +1,540 @@
+---
+title: "Group 4"
+author: "Tabi Sutherland, Angus Lindsay, Keegan Renshaw"
+date: "2026-09-18"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(knitr)
+
+dat <- read.csv("movie_shotscale.csv", stringsAsFactors = TRUE,
+                fileEncoding = "latin1")
+
+# Clean text columns to avoid UTF-8 errors
+dat$Title    <- iconv(as.character(dat$Title),    from = "latin1", to = "UTF-8", sub = "?")
+dat$Director <- iconv(as.character(dat$Director), from = "latin1", to = "UTF-8", sub = "?")
+dat$Country  <- iconv(as.character(dat$Country),  from = "latin1", to = "UTF-8", sub = "?")
+dat$Title    <- factor(dat$Title)
+dat$Director <- factor(dat$Director)
+dat$Country  <- factor(dat$Country)
+
+num <- c("ASL","RA","POV","INS","BCU","CU","MCU","MS","MLS","LS","VLS")
+
+```
+
+
+## Introduction
+This report analyses the movie_shotscale dataset which contains 388 screen productions using a range of multivariate statistical methods. The dataset records basic information for each movie, including title, year, director and country, together with measures of editing and shot composition. These include average shot length (ASL), counts of reverse-angle, point-of-view and insert cuts, and counts across seven shot scales ranging from big close-ups to very long shots. 
+The aim of the analysis is to describe the main quantitative and graphical features of the data and to investigate its multivariate structure. In particular, the report assesses whether a multivariate Normal model is a reasonable assumption, identifies unusual or surprising observations, and examines whether the productions form distinct groups based on their shot characteristics. Because the original source of the dataset is no longer available, some unusual values and coding patterns cannot be independently verified and are therefore interpreted cautiously. 
+Overall, the analysis is intended to determine whether the variation in shot style is best understood as a set of distinct filmmaking groups or as broader continuous patterns across the sample.
+
+## Methodology 
+I conducted a quantitative descriptive analysis in R using univariate summaries, overdispersion checks, Spearman correlations, and country-level comparisons after cleaning text fields and flagging missing or impossible values. 
+
+# Quantitative descriptive analysis
+
+## The data
+
+The dataset contains `r nrow(dat)` films and `r ncol(dat)` variables.
+
+Variables: Title, Year, Director, Country, ASL, and ten shot counts (RA, POV, INS, BCU, CU, MCU, MS, MLS, LS, VLS).
+
+Median year `r median(dat$Year, na.rm = TRUE)` (range `r min(dat$Year, na.rm = TRUE)` to `r max(dat$Year, na.rm = TRUE)`), so the sample is concentrated in the 1920s and 1930s.
+
+## Missing values
+
+```{r}
+miss <- colSums(is.na(dat))
+miss <- miss[miss > 0]
+miss_tab <- data.frame(
+  Variable = names(miss),
+  Missing  = as.integer(miss)
+)
+kable(miss_tab, caption = "Variables with missing values")
+```
+
+Missingness is minimal: Year has 2 missing values and BCU has 1. Country has one blank level and one film with no country; Director has 16 blank entries.
+
+## Sample composition
+
+```{r}
+tab <- sort(table(dat$Country), decreasing = TRUE)
+kable(data.frame(Country = names(tab), Films = as.integer(tab)),
+      caption = "Number of films per country")
+```
+
+The USA dominates (215 films, 55.4%), followed by Britain (63), Germany (55) and France (37); the remaining countries have 5 or fewer films.
+
+## Univariate summaries
+
+```{r}
+desc <- data.frame(
+  Variable = num,
+  Mean     = round(sapply(dat[num], mean,   na.rm = TRUE), 2),
+  Median   = round(sapply(dat[num], median, na.rm = TRUE), 2),
+  SD       = round(sapply(dat[num], sd,     na.rm = TRUE), 2),
+  IQR      = round(sapply(dat[num], IQR,    na.rm = TRUE), 2),
+  Min      = round(sapply(dat[num], min,    na.rm = TRUE), 2),
+  Max      = round(sapply(dat[num], max,    na.rm = TRUE), 2)
+)
+kable(desc, caption = "Univariate numerical summaries")
+```
+
+## Reading the univariate table
+
+ASL is strongly right-skewed: mean 11.79 s, median 7.70 s, SD 50.59 s, max 1000 s, min 0 s.
+
+All count variables are overdispersed (variance greater than the mean), so median and IQR are more informative than mean and SD.
+
+Most frequent shot type on average: LS (114.9), then MLS (100.2), MS (82.3), CU (79.2), MCU (74.0).
+
+Least frequent: RA (21.2), VLS (20.2), POV (5.9), INS (5.9).
+
+## Overdispersion check
+
+```{r}
+vmr <- data.frame(
+  Variable = num,
+  Mean     = round(sapply(dat[num], mean, na.rm = TRUE), 1),
+  Variance = round(sapply(dat[num], var,  na.rm = TRUE), 1),
+  VMR      = round(sapply(dat[num], function(x) var(x, na.rm=TRUE)/mean(x, na.rm=TRUE)), 1)
+)
+kable(vmr, caption = "Variance-to-mean ratio (VMR)")
+```
+
+All VMR values are well above 1, confirming overdispersion.
+
+## Correlations (Spearman)
+
+```{r}
+cor_mat <- round(cor(dat[num], use = "pairwise.complete.obs",
+                     method = "spearman"), 2)
+kable(cor_mat, caption = "Spearman correlation matrix")
+```
+
+## Reading the correlations
+
+Strong positive associations:
+
+- POV and INS: 0.74
+- RA and CU: 0.68
+- BCU and CU: 0.60
+
+Strong negative associations:
+
+- CU and MLS: -0.77
+- CU and LS: -0.71
+- MCU and LS: -0.63
+
+ASL is negatively correlated with RA (-0.28) and CU (-0.38), and positively with MLS (0.46).
+
+This suggests a clear contrast between films built on close-ups and reverse angles and films built on longer, more distant shots.
+
+## Summaries by country
+
+```{r}
+by_country <- aggregate(dat[num],
+                        by = list(Country = dat$Country),
+                        FUN = mean, na.rm = TRUE)
+big <- names(tab[tab >= 4])
+by_country <- by_country[as.character(by_country$Country) %in% big,
+                         c("Country","ASL","RA","CU","MLS","LS")]
+by_country[, -1] <- round(by_country[, -1], 1)
+kable(by_country, caption = "Mean values by country (n >= 4)")
+```
+
+Only the USA, Britain, Germany and France can be compared with any confidence.
+
+# Surprising observations
+
+## Impossible values: ASL = 0
+
+```{r}
+zeros <- dat[!is.na(dat$ASL) & dat$ASL == 0,
+             c("Title","Year","Director","ASL")]
+kable(zeros, caption = "Films with ASL = 0")
+```
+
+An average shot length of zero seconds is impossible. These are almost certainly data errors or missing values coded as 0, and should be set to NA before further analysis.
+
+## A genuine extreme: Rope
+
+```{r}
+top <- dat[order(-dat$ASL), c("Title","Year","Director","ASL")][1, ]
+kable(top, caption = "Film with the largest ASL")
+```
+
+Rope (Hitchcock, 1948) has ASL = 1000 s.
+
+This is not an error. Hitchcock deliberately shot Rope in a very small number of long continuous takes. An average of about 16.7 minutes per shot is consistent with that technique.
+
+Lesson: an outlier can be scientifically meaningful, not just noise.
+
+## Extreme shot counts
+
+```{r}
+ext <- dat[dat$BCU > 150 | dat$CU > 250 | dat$LS > 300,
+           c("Title","BCU","CU","LS")]
+kable(ext, caption = "Extreme shot-count observations")
+```
+
+Two opposite stylistic poles:
+
+Close-up dominated: Dallas – Who Done It? (CU = 322, LS = 21), Eastenders (CU = 268, LS = 12).
+
+Long-shot dominated: Havsgamar (CU = 0, LS = 320), Karleken Segrar (CU = 0, LS = 301).
+
+Note also that Coronation Street, Dallas and Eastenders are TV series, not films, which is a scope issue to discuss.
+
+## Blank country
+
+```{r}
+blank <- dat[dat$Country == "",
+             c("Title","Year","Director","Country")]
+kable(blank, caption = "Film with a blank country")
+```
+
+One film has no country recorded and should be treated as Unknown or excluded.
+
+## Qualitative analysis of the data
+Methodology
+Graphical/Qualitative analysis:
+```{r, include=FALSE}
+movies <- read.csv(file="movie_shotscale.csv")
+movies$Title <- iconv(movies$Title, from = "", to = "UTF-8", sub = "")
+movies$Director <- iconv(movies$Director, from = "", to = "UTF-8", sub = "")
+movies <- data.frame(movies)
+movies$Title <- as.factor(movies$Title)
+movies$Director <- as.factor(movies$Director)
+movies$Country <- as.factor(movies$Country)
+movies<-movies[complete.cases(movies),]
+count.ry<-table(movies$Country)
+movies$Countries <- ifelse(
+movies$Country %in% names(count.ry[count.ry >= 4]),
+as.character(movies$Country),"Other")
+movies$Countries <- factor(movies$Countries)
+```
+Observations with missing values were removed from data frame prior to allow comparisons.
+Correlation plot
+```{r}
+library(ggcorrplot)
+library(ggplot2)   # ggcorrplot depends on it
+library(GGally)
+corr <- cor(movies[,-c((1:4),16)])
+pmat <- cor_pmat(movies[,-c((1:4),16)])
+ggcorrplot(
+corr,p.mat=pmat,
+insig="stars",method="circle",hc.order=TRUE,type="lower")
+```
+Correlation matrix used to identify pairwise correlations between each numerical variable across each observation. Stars indicate significance of correlation, colour and size indicate direction and magnitude of correlation.
+Pairs
+```{r}
+ggpairs(movies,columns = c(6:8,10,12,14),
+ggplot2::aes(colour = Countries, alpha = .7),
+upper = list(continuous = wrap("cor", size = 2)))
+```
+Pairs plot used to display pairwise correlations between variables grouped by country. Country chosen as group because it was the factor most able to be reduced.
+Boxplots
+```{r}
+library(reshape2)
+movies.melt <- melt(data=movies[,6:16],
+id.vars = "Countries",
+variable.name = "Shots")
+ggplot(data=movies.melt, aes(x=Shots, y=value)) +
+geom_boxplot(aes(col=Shots), notch = TRUE) +
+facet_grid(~ Countries) +
+ylab("No. Shots") +
+theme(axis.text.x = element_text(size=7, angle=90, hjust=1),
+legend.position = "none")
+```
+Boxplots showing the numbers of each type of shot, grouped by country. Average shot length (ASL) excluded because it is measured on a different scale (time).
+Principal Components
+```{r}
+library(ggbiplot)
+
+movies.PCA<-prcomp(movies[,5:15],center=TRUE,scale=TRUE)
+movies.PCA$rotation[,1:2]
+ggbiplot(movies.PCA,obs.scale=1,var.scale=1,groups=movies$Countries,
+ellipse=TRUE,labels = movies$Title)
+```
+Observations grouped by country graphed on the principal component axes PC1 (High MLS and VLS, low RA, CU, MCU) and PC2 (High INS and LS, low MCU and MS). Used to display how movies from each country vary according to the variables represented by the Principal components that contain the most variability.
+
+Factor Analysis
+```{r}
+library(psych)
+
+factanal(movies[,5:15], factors = 4)
+fa.movies <- factanal(movies[,5:15], factors = 4)
+par(family = "serif", mar = c(2, 2, 2, 5))
+fa.diagram(fa.movies$loadings,digits = 3,rsize = 0.5,cex = 0.7,e.size = 0.08)
+```
+Factor analysis used to identify groups of related variables grouping, showing how these groups account for variation in the data.
+
+## Can we assume the data follow a multivariate Normal distribution?
+
+First, I defined the multivariate quantitative vector. The variables Title, Director, and Country are categorical, so they are not components of a multivariate Guassian vector. For the data to follow a multivariate normal distribution, each individual component must be normally distributed. We check this by visualising a QQ-Norm against QQ-line plot to visualizes whether the data follows the line. I then perform an Anderson-Darling test of normality with a null hypothesis that the data does follow a normal distribution and the alternative hypothesis that the data does not follow a normal distribution.
+```{r, include=FALSE}
+vars <- c("ASL", "RA", "POV", "INS", "BCU",
+          "CU", "MCU", "MS", "MLS", "LS", "VLS")
+
+movie <- na.omit(dat[, vars])
+
+head(movie)
+summary(movie)
+```
+## QQ-Norm plots
+The QQ-Norm plots for each variable to check for normality
+
+For the data to follow a multivariate normal distribution, each individual component must be normally distributed. We check this by visualising a QQ-Norm against QQ-line plot to visualize whether the data follows the line. 
+
+## Q-Q plots: Variables that show they are not normally distributed
+
+```{r qq1, fig.width=8, fig.height=4.2}
+vars1 <- c("INS", "BCU", "CU", "MLS", "LS", "VLS")
+
+par(
+  mfrow = c(2, 3),
+  mar = c(1.8, 1.8, 1.5, 0.5),
+  oma = c(0.5, 0.5, 0, 0),
+  mgp = c(1.1, 0.3, 0),
+  cex.axis = 0.55,
+  cex.main = 0.7
+)
+
+for (v in vars1) {
+  qqnorm(
+    movie[[v]],
+    main = v,
+    xlab = "",
+    ylab = "",
+    pch = 14,
+    cex = 0.3
+  )
+  qqline(movie[[v]], col = "red", lwd = 1.5)
+}
+
+
+```
+
+## QQ-Normality - The variables that don't follow a normal distribution
+
+- Based on this, we see that the variables INS, BCU, CU, MLS, LS, 
+  and VLS are not normally distributed. 
+- ALS also has an extreme outlier, producing a right-skew: 
+```{r qq2, fig.width=4, fig.height=4}
+par(mfrow = c(1, 1))
+qqnorm(movie[["ASL"]], main ="ASL")
+qqline(movie[["ASL"]], col = "red", lwd = 1.5)
+```
+
+
+
+
+## Anderson darling test of normality
+
+We then perform an Anderson-Darling test of normality with a null hypothesis that the data does follow a normal distribution and the alternative hypothesis that the data does not follow a normal distribution. 
+According to the results:
+- ASL, POV, INS, and VLS all show significant evidence against Normality, while RA, BCU, CU, MCU, MS, MLS, and LS do not provide evidence against normality. Due to the fact that multiple individuals fail a Normality check, we have evidence that the data are not multivariate normal. 
+
+```{r}
+library(goftest)
+set.seed(12)
+
+# perform an Anderson-darling test
+ad_p <- sapply(movie, function(x) {
+  m <- mean(x); s <- sqrt(mean((x - m)^2))   # MLE sd
+  ad.test(x, null = "pnorm", mean = m, sd = s, estimated = TRUE)$p.value # checking if it follows a pnorm distribution
+})
+round(ad_p, 4)
+
+```
+
+## Mahalanobis distance check for Multivariate Normality
+
+```{r mahalanobisResults, include=FALSE}
+mu.hat = colMeans(movie)
+Sigma.hat = (cov(movie))
+
+dM2 = mahalanobis(movie, center=mu.hat, cov=Sigma.hat)
+
+p=ncol(movie)
+q = qchisq(c(.90, 0.95, 0.99), df=p)
+obs1 = mean(dM2 > q[1])
+obs2= mean(dM2 > q[2])
+obs3 = mean(dM2 > q[3])
+
+obs1
+obs2
+obs3
+```
+The observed proportions of large Mahalanobis distances are greater than those expected under a multivariate normal distribution. These inconsistencies becomes particularly pronounced at the 95% and 99% cut-offs. The results therefore suggest that the movie data do not follow a multivariate normal distribution closely, with more extreme multivariate observations than would be expected under normality.
+
+
+
+## Are there groups in these data?
+
+## looking for groups
+The seven shot-scale variables describe how shots are distributed from big close-ups to very long shots:
+BCU, CU, MCU, MS, MLS, LS, and VLS
+
+Because the total number of these coded shots is approximately 500 for most films, we converted them to proportions before comparing films
+
+```{r groups-setup, include=FALSE}
+library(cluster)
+library(MASS)
+scale_vars <- c("BCU", "CU", "MCU", "MS", "MLS", "LS", "VLS")
+# Make sure all seven variables are retained
+shot_counts <- movie[, scale_vars, drop = FALSE]
+rows = as.integer(rownames(movie))
+yr = dat$Year[rows]
+
+
+# Convert counts to proportions
+shot_prop <- movie[, scale_vars] / rowSums(movie[, scale_vars])
+
+# Standardise
+shot_scaled <- scale(shot_prop)
+
+hc = hclust(dist(shot_scaled), method="ward.D2")
+groups2 = cutree(hc, k=2)
+groups3 = cutree(hc, k=3)
+```
+
+We focus on shot scale rather than all 11 variables because:
+- the seven shot-scale variables directly describe the visual composition
+- RA, POV, and INS contain a lot of the same zero values
+- ASL contains an extreme value for Rope, which will affect the distance-based clustering strongly. 
+
+
+
+
+
+## Checking for any distinct clusters
+```{r shotScaleCompasion, fig.height=4, fig.width=4}
+pca_groups <- prcomp(shot_scaled)
+
+plot(
+  pca_groups$x[,1],
+  pca_groups$x[,2],
+  col = groups2,
+  pch = 19,
+  cex = 0.6,
+  xlab = "PC1",
+  ylab = "PC2",
+  main = "Shot-scale composition"
+)
+
+legend(
+  "topright",
+  legend = c("Group 1", "Group 2"),
+  col = 1:2,
+  pch = 19,
+  cex = 0.8
+)
+```
+
+
+## Discussion of shot-scale comparison
+The Hierarchical clustering can divide the films into two groups but the PCA plot shows substantial overlap between them. 
+This suggests that the films do not form two clearly seperated populations. Instead, the clustering algorithm is dividing a more continuous pattern into two parts. 
+
+
+## Shot scale comparison through time
+```{r groups-year, fig.width=6, fig.height=4}
+plot(
+  yr,
+  pca_groups$x[,1],
+  pch = 19,
+  cex = 0.55,
+  xlab = "Year",
+  ylab = "PC1",
+  main = "Shot-scale composition through time"
+)
+
+abline(
+  lm(pca_groups$x[,1] ~ yr),
+  col = "red",
+  lwd = 2
+)
+
+pc1_year_cor <- cor(
+  pca_groups$x[,1],
+  yr,
+  use = "complete.obs"
+)
+```
+
+
+## Taking a look at the smallest cluster
+```{r}
+# Use the three-cluster solution
+cluster_sizes <- table(groups3)
+
+small_group <- as.integer(
+  names(which.min(cluster_sizes))
+)
+
+early_group <- data.frame(
+  Title = dat$Title[rows],
+  Year = yr,
+  CU = movie$CU,
+  MLS = movie$MLS,
+  LS = movie$LS,
+  Group = groups3
+)
+
+early_group <- early_group[
+  early_group$Group == small_group,
+]
+
+early_group <- early_group[
+  order(early_group$Year),
+]
+
+early_small <- head(
+  early_group[, c("Title", "Year", "CU", "MLS", "LS")],
+  6
+)
+
+knitr::kable(
+  early_small,
+  caption = "Examples from the distinctive early subset",
+  format = "html",
+  table.attr = 'style="font-size:70%;"'
+)
+```
+
+
+## Discussion
+No clear groups
+- The clustering algorithms can divide the films into groups, but the groups are not strongly separated.
+- The clearest structure:
+- 1. a strong continuous change in shot-scale composition through time
+- 2.a small distinctive subset of films from approximately 1912-1916
+
+Quantitative descriptive analysis:
+
+- ASL and most counts are right-skewed and overdispersed, so use median and IQR.
+- Strong correlations: CU with MLS (-0.77), POV with INS (+0.74).
+- USA dominates; only USA, BRI, GER, FRA allow reliable country comparisons.
+
+Qualitative analysis:
+
+- Length of shots (ASL) is independent of types of shots.
+- Movies with a lot of close ups and reverse shots include few long shots.
+- Similar trends in shot types hold across all countries excluding USA
+
+Surprising observations:
+- Four films with impossible ASL = 0, treat as missing.
+- Rope (ASL = 1000) is a real, meaningful extreme.
+
+Can we assume the data follow a multivariate Normal distribution?
+- We have sufficient evidence to assume that the data does not follow a multivariate Normal distribution
+
+Are there any groups in these data?
+- There are no clear groups in the data
