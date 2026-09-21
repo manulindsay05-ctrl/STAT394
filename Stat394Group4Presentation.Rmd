@@ -437,7 +437,7 @@ for (v in vars1) {
 
 - Based on this, we see that the variables INS, BCU, CU, MLS, LS, 
   and VLS are not normally distributed. 
-- ALS also has an extreme outlier, producing a right-skew: 
+- ASL also has an extreme outlier, producing a right-skew: 
 ```{r qq2, fig.width=4, fig.height=4}
 par(mfrow = c(1, 1))
 qqnorm(movie[["ASL"]], main ="ASL")
@@ -490,7 +490,7 @@ The observed proportions of large Mahalanobis distances are greater than those e
 
 ## Based on the observed results, can we assume the data follow a multivariate normal distribution?
 
-To conclude, we may assume that the data does not follow a multivariate normal distribution. Taken together, the marginal and multivariate diagnostics indicate that multivariate Normality is not a reasonable assumption for these data.
+We conclude the data do not follow a multivariate Normal distribution. Taken together, the marginal and multivariate diagnostics indicate that multivariate Normality is not a reasonable assumption for these data.
 
 
 
